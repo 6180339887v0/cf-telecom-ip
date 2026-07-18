@@ -58,7 +58,7 @@ def main() -> None:
 
     for fetch in (from_wetest, from_uouin):
         try:
-            for ip, rtt in fetch().items():
+            for ip, rtt in fetch(s).items():
                 if ip not in merged or rtt < merged[ip]:
                     merged[ip] = rtt
         except Exception as e:
