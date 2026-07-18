@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
-from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
@@ -22,22 +21,7 @@ def session() -> requests.Session:
     return s
 
 
-def from_wetest(s: requests.Session) -> dict[str, float]:
-    resp = s.get("https://www.wetest.vip/page/cloudflare/address_v4.html", timeout=10)
-    resp.raise_for_status()
-    table = BeautifulSoup(resp.text, "lxml").find("table")
-    result = {}
-    for tr in table.find_all("tr"):
-        cells = [td.get_text(strip=True) for td in tr.find_all("td")]
-        if len(cells) < 7 or cells[0] != "电信" or not IP_RE.match(cells[1]):
-            continue
-        rtt = DIGIT_RE.sub("", cells[4])
-        if rtt:
-            result[cells[1]] = float(rtt)
-    return result
-
-
-def from_uouin(s: requests.Session) -> dict[str, float]:
+def fetch_telecom_ips(s: requests.Session) -> dict[str, float]:
     resp = s.get("https://bestcf.pages.dev/uouin/all.txt", timeout=10)
     resp.raise_for_status()
     result = {}
@@ -53,21 +37,11 @@ def from_uouin(s: requests.Session) -> dict[str, float]:
 
 
 def main() -> None:
-    s = session()
-    merged: dict[str, float] = {}
+    records = fetch_telecom_ips(session())
+    if not records:
+        sys.exit("未抓取到电信线路数据")
 
-    for fetch in (from_wetest, from_uouin):
-        try:
-            for ip, rtt in fetch(s).items():
-                if ip not in merged or rtt < merged[ip]:
-                    merged[ip] = rtt
-        except Exception as e:
-            print(f"{fetch.__name__} 失败: {e}", file=sys.stderr)
-
-    if not merged:
-        sys.exit("两个数据源均抓取失败")
-
-    ranked = sorted(merged.items(), key=lambda x: x[1])
+    ranked = sorted(records.items(), key=lambda x: x[1])
 
     DATA_DIR.mkdir(exist_ok=True)
     (DATA_DIR / "telecom_ips.json").write_text(
