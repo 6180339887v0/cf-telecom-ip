@@ -2,7 +2,7 @@ name: 更新电信优选IP
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "7,37 * * * *"
   workflow_dispatch: {}
 
 concurrency:
