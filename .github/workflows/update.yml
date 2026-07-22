@@ -18,8 +18,6 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: python scraper.py
-        env:
-          UOUIN_KEY: ${{ secrets.UOUIN_KEY }}
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
