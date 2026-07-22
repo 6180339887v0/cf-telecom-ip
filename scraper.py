@@ -1,5 +1,5 @@
 import json
-import re
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,8 +9,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
 DATA_DIR = Path(__file__).parent / "data"
-IP_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
-DIGIT_RE = re.compile(r"[^\d.]")
+USERNAME = "silence"
+API_URL = "https://api.uouin.com/app/cloudflare"
 
 
 def session() -> requests.Session:
@@ -21,19 +21,31 @@ def session() -> requests.Session:
     return s
 
 
-def fetch_telecom_ips(s: requests.Session) -> dict[str, float]:
-    resp = s.get("https://bestcf.pages.dev/uouin/all.txt", timeout=10)
+def fetch_telecom_ips(s: requests.Session) -> list[dict]:
+    key = os.environ["UOUIN_KEY"]
+    resp = s.get(
+        API_URL,
+        params={"username": USERNAME, "key": key, "nodeid": "ctcc"},
+        timeout=10,
+    )
     resp.raise_for_status()
-    result = {}
-    for line in resp.text.strip().splitlines():
-        parts = [p.strip() for p in line.split("|")]
-        if len(parts) < 5 or parts[1] != "电信":
-            continue
-        ip = parts[0].split(":")[0]
-        rtt = DIGIT_RE.sub("", parts[3])
-        if IP_RE.match(ip) and rtt:
-            result[ip] = float(rtt)
-    return result
+    payload = resp.json()
+
+    if payload.get("code") != "200":
+        sys.exit(f"API返回异常: {payload.get('msg')}")
+
+    info = payload["data"]["ctcc"]["info"]
+    records = []
+    for item in info:
+        ping = float(item["ping"].replace("ms", ""))
+        records.append({
+            "ip": item["ip"],
+            "loss": item["loss"],
+            "ping_ms": ping,
+            "speed": item["speed"],
+            "bandwidth": item["bandwidth"],
+        })
+    return records
 
 
 def main() -> None:
@@ -41,21 +53,21 @@ def main() -> None:
     if not records:
         sys.exit("未抓取到电信线路数据")
 
-    ranked = sorted(records.items(), key=lambda x: x[1])
+    ranked = sorted(records, key=lambda r: r["ping_ms"])
 
     DATA_DIR.mkdir(exist_ok=True)
     (DATA_DIR / "telecom_ips.json").write_text(
         json.dumps({
             "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "count": len(ranked),
-            "records": [{"ip": ip, "rtt_ms": rtt} for ip, rtt in ranked],
+            "records": ranked,
         }, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     (DATA_DIR / "telecom_ips.txt").write_text(
-        "\n".join(ip for ip, _ in ranked) + "\n", encoding="utf-8"
+        "\n".join(r["ip"] for r in ranked) + "\n", encoding="utf-8"
     )
-    print(f"共 {len(ranked)} 条，最优延迟 {ranked[0][1]}ms")
+    print(f"共 {len(ranked)} 条，最优延迟 {ranked[0]['ping_ms']}ms")
 
 
 if __name__ == "__main__":
